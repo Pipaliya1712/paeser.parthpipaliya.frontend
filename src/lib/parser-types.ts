@@ -1,3 +1,9 @@
+import {
+  Type, Hash, Sigma, ToggleLeft, Calendar, CalendarClock, Clock,
+  DollarSign, Mail, Phone, Link as LinkIcon, List, Braces, ListChecks,
+  type LucideIcon,
+} from "lucide-react";
+
 export type DataType =
   | "string"
   | "integer"
@@ -5,38 +11,55 @@ export type DataType =
   | "boolean"
   | "date"
   | "datetime"
+  | "time"
   | "currency"
   | "email"
   | "phone"
   | "url"
+  | "enum"
   | "array"
   | "object";
 
-export const DATA_TYPES: DataType[] = [
-  "string",
-  "integer",
-  "float",
-  "boolean",
-  "date",
-  "datetime",
-  "currency",
-  "email",
-  "phone",
-  "url",
-  "array",
-  "object",
-];
+export const DATA_TYPE_META: Record<DataType, { label: string; icon: LucideIcon }> = {
+  string:   { label: "Text",         icon: Type },
+  integer:  { label: "Number",       icon: Hash },
+  float:    { label: "Decimal",      icon: Sigma },
+  boolean:  { label: "Yes / No",     icon: ToggleLeft },
+  date:     { label: "Date",         icon: Calendar },
+  datetime: { label: "Date & Time",  icon: CalendarClock },
+  time:     { label: "Time",         icon: Clock },
+  currency: { label: "Currency",     icon: DollarSign },
+  email:    { label: "Email",        icon: Mail },
+  phone:    { label: "Phone",        icon: Phone },
+  url:      { label: "URL",          icon: LinkIcon },
+  enum:     { label: "Enum",         icon: ListChecks },
+  array:    { label: "List",         icon: List },
+  object:   { label: "Group",        icon: Braces },
+};
+
+export const DATA_TYPES = Object.keys(DATA_TYPE_META) as DataType[];
 
 export const PRIMITIVE_TYPES: DataType[] = DATA_TYPES.filter(
   (t) => t !== "array" && t !== "object",
 );
 
-export const CURRENCIES = ["USD", "INR", "EUR", "GBP", "JPY", "CAD", "AUD", "CHF", "CNY"];
+/** Convert snake_case / kebab-case / camelCase keys to human-readable Title Case. */
+export function toTitleCase(s: string): string {
+  if (!s) return "";
+  return s
+    .replace(/([a-z])([A-Z])/g, "$1 $2")
+    .replace(/[_-]+/g, " ")
+    .split(" ")
+    .filter(Boolean)
+    .map((w) => w[0].toUpperCase() + w.slice(1).toLowerCase())
+    .join(" ");
+}
 
 export interface FieldExtra {
   date_format?: string;
   currency_country?: string;
   array_item_type?: DataType;
+  enum_values?: string[];
 }
 
 export interface SchemaField {
@@ -100,14 +123,16 @@ export function serializeField(f: SchemaField): SerializedField {
     required: f.required,
   };
   if (f.description) out.description = f.description;
-  if (f.extra && Object.keys(f.extra).length > 0) {
+  if (f.extra) {
     const extra: FieldExtra = {};
-    if ((f.data_type === "date" || f.data_type === "datetime") && f.extra.date_format)
+    if ((f.data_type === "date" || f.data_type === "datetime" || f.data_type === "time") && f.extra.date_format)
       extra.date_format = f.extra.date_format;
     if (f.data_type === "currency" && f.extra.currency_country)
       extra.currency_country = f.extra.currency_country;
     if (f.data_type === "array" && f.extra.array_item_type)
       extra.array_item_type = f.extra.array_item_type;
+    if (f.data_type === "enum" && f.extra.enum_values && f.extra.enum_values.length > 0)
+      extra.enum_values = f.extra.enum_values;
     if (Object.keys(extra).length > 0) out.extra = extra;
   }
   if (f.children && f.children.length > 0)
@@ -156,6 +181,11 @@ export function validateSchemaJson(input: unknown): { ok: true; data: Serialized
       if (!hasChildren && !hasItemType)
         errors.push(`${path}: array type requires children or extra.array_item_type`);
     }
+    if (dt === "enum") {
+      const vals = (n.extra as FieldExtra | undefined)?.enum_values;
+      if (!Array.isArray(vals) || vals.length === 0)
+        errors.push(`${path}: enum type requires extra.enum_values (non-empty array of strings)`);
+    }
     if (dt !== "object" && dt !== "array" && n.children) {
       errors.push(`${path}: children only allowed for object or array types`);
     }
@@ -168,4 +198,25 @@ export function validateSchemaJson(input: unknown): { ok: true; data: Serialized
   input.forEach((item, i) => walk(item, `[${i}]`));
   if (errors.length) return { ok: false, errors };
   return { ok: true, data: input as SerializedField[] };
+}
+
+/** Validate a list of in-memory schema fields (used before submit). */
+export function validateFields(fields: SchemaField[]): string[] {
+  const errors: string[] = [];
+  const walk = (arr: SchemaField[], path: string) => {
+    arr.forEach((f, i) => {
+      const p = `${path}[${i}]${f.key_name ? `(${f.key_name})` : ""}`;
+      if (!f.key_name.trim()) errors.push(`${p}: key name is required`);
+      if (f.data_type === "enum") {
+        const v = f.extra?.enum_values;
+        if (!v || v.length === 0)
+          errors.push(`${p}: enum values are required`);
+      }
+      if (f.data_type === "object" && (!f.children || f.children.length === 0))
+        errors.push(`${p}: group requires at least one child field`);
+      if (f.children) walk(f.children, `${p}.children`);
+    });
+  };
+  walk(fields, "");
+  return errors;
 }

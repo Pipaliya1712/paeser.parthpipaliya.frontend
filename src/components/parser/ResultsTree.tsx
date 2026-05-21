@@ -1,7 +1,7 @@
 "use client";
 import { useMemo } from "react";
 import { MapPin, Copy } from "lucide-react";
-import type { FieldDetail, ParseResponse } from "@/lib/parser-types";
+import { type FieldDetail, type ParseResponse, toTitleCase } from "@/lib/parser-types";
 
 interface Props {
   response: ParseResponse;
@@ -29,14 +29,14 @@ export function ResultsTree({ response, activeKey, onPinClick }: Props) {
   };
 
   return (
-    <div className="rounded-xl border border-border bg-card">
+    <div className="flex h-full flex-col">
       <div className="flex items-center justify-between border-b border-border px-4 py-2.5">
         <div className="text-sm font-semibold">Extracted Data</div>
         <button onClick={copyJson} className="inline-flex items-center gap-1.5 rounded-md border border-border px-2 py-1 text-xs hover:bg-muted">
           <Copy className="h-3 w-3" /> Copy JSON
         </button>
       </div>
-      <div className="max-h-[420px] overflow-auto p-3 font-mono text-xs">
+      <div className="flex-1 overflow-auto p-3 font-mono text-xs">
         <TreeNode
           value={response.extracted_data}
           path=""
@@ -45,7 +45,7 @@ export function ResultsTree({ response, activeKey, onPinClick }: Props) {
           onPinClick={onPinClick}
         />
       </div>
-      <div className="flex flex-wrap gap-x-4 gap-y-1 border-t border-border px-4 py-2 text-xs text-muted-foreground">
+      <div className="flex flex-wrap gap-x-4 gap-y-1 border-t border-border px-4 py-2 text-[11px] text-muted-foreground">
         <span>Processing: {response.metadata.processing_time_seconds.toFixed(2)}s</span>
         <span>Pages: {response.metadata.pages_processed}</span>
         <span>Model: {response.metadata.model_used}</span>
@@ -78,9 +78,9 @@ function PinBadge({
 }
 
 function formatLeaf(v: unknown): string {
-  if (v === null) return "null";
-  if (v === undefined) return "undefined";
-  if (typeof v === "string") return JSON.stringify(v);
+  if (v === null) return "—";
+  if (v === undefined) return "—";
+  if (typeof v === "string") return v;
   return String(v);
 }
 
@@ -94,7 +94,7 @@ function TreeNode({ value, path, detailsByKey, activeKey, onPinClick }: NodeProp
           const detail = detailsByKey.get(childPath);
           return (
             <div key={i}>
-              <span className="text-muted-foreground">[{i}]:</span>
+              <span className="text-muted-foreground">[{i}]</span>
               {isLeaf ? (
                 <>
                   <span className="ml-2 text-foreground">{formatLeaf(item)}</span>
@@ -121,7 +121,8 @@ function TreeNode({ value, path, detailsByKey, activeKey, onPinClick }: NodeProp
           const detail = detailsByKey.get(childPath);
           return (
             <div key={k}>
-              <span className="text-primary">{k}</span>
+              <span className="text-primary font-sans font-medium">{toTitleCase(k)}</span>
+              <span className="ml-1 font-mono text-[10px] text-muted-foreground">({k})</span>
               <span className="text-muted-foreground">:</span>
               {isLeaf ? (
                 <>

@@ -1,11 +1,11 @@
 "use client";
-import { useEffect, useMemo, useRef, useState, useCallback } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Document, Page, pdfjs } from "react-pdf";
 import "react-pdf/dist/Page/AnnotationLayer.css";
 import "react-pdf/dist/Page/TextLayer.css";
 import {
   ChevronLeft, ChevronRight, ZoomIn, ZoomOut, RefreshCw,
-  Square, Highlighter, ArrowRight, Type, Eraser, Trash2,
+  Square, Highlighter, ArrowRight, Type, Eraser, Trash2, MousePointer2,
 } from "lucide-react";
 import type { FieldDetail } from "@/lib/parser-types";
 
@@ -17,29 +17,25 @@ if (typeof window !== "undefined") {
   ).toString();
 }
 
-type Tool = "rect" | "highlight" | "arrow" | "text" | "eraser" | "none";
-type Stroke = "thin" | "medium" | "thick";
+type Tool = "none" | "rect" | "highlight" | "arrow" | "text" | "eraser";
 
 interface Annotation {
   id: string;
-  tool: Tool;
+  tool: Exclude<Tool, "none" | "eraser">;
   page: number;
-  // normalized 0..1 coords relative to page
+  // normalized 0..1 coords
   x1: number; y1: number; x2: number; y2: number;
   color: string;
-  stroke: number;
   text?: string;
 }
 
 const COLORS = [
-  { name: "red", value: "#ef4444" },
-  { name: "blue", value: "#3b82f6" },
-  { name: "green", value: "#22c55e" },
-  { name: "yellow", value: "#eab308" },
-  { name: "purple", value: "#a855f7" },
+  { name: "Red",    value: "#ef4444", light: "#fecaca" },
+  { name: "Blue",   value: "#3b82f6", light: "#bfdbfe" },
+  { name: "Green",  value: "#22c55e", light: "#bbf7d0" },
+  { name: "Yellow", value: "#eab308", light: "#fef08a" },
+  { name: "Purple", value: "#a855f7", light: "#e9d5ff" },
 ];
-
-const STROKE_PX: Record<Stroke, number> = { thin: 2, medium: 4, thick: 6 };
 
 interface Props {
   file: File;
@@ -51,11 +47,11 @@ export function PdfViewer({ file, highlight }: Props) {
   const [pageNum, setPageNum] = useState(1);
   const [zoom, setZoom] = useState(1);
   const [tool, setTool] = useState<Tool>("none");
-  const [color, setColor] = useState(COLORS[0].value);
-  const [stroke, setStroke] = useState<Stroke>("medium");
+  const [colorIdx, setColorIdx] = useState(0);
   const [annotations, setAnnotations] = useState<Annotation[]>([]);
   const [drawing, setDrawing] = useState<Annotation | null>(null);
-  const [pageSize, setPageSize] = useState<{ w: number; h: number }>({ w: 800, h: 1000 });
+
+  const color = COLORS[colorIdx];
 
   const fileUrl = useMemo(() => URL.createObjectURL(file), [file]);
   useEffect(() => () => URL.revokeObjectURL(fileUrl), [fileUrl]);
@@ -64,28 +60,35 @@ export function PdfViewer({ file, highlight }: Props) {
   const isImage = file.type.startsWith("image/");
   const isText = !isPdf && !isImage;
 
-  // Reset on file change
   useEffect(() => {
     setPageNum(1);
     setAnnotations([]);
     setDrawing(null);
   }, [file]);
 
-  // When highlight changes, jump to the page
   useEffect(() => {
     if (highlight) setPageNum(highlight.location.page_number);
   }, [highlight]);
 
   const overlayRef = useRef<HTMLDivElement>(null);
 
-  const onPointerDown = (e: React.PointerEvent) => {
+  /** Compute normalized 0..1 coords from a pointer event, relative to the overlay's box. */
+  const pointToNorm = (e: React.PointerEvent) => {
+    const el = overlayRef.current;
+    if (!el) return { x: 0, y: 0 };
+    const rect = el.getBoundingClientRect();
+    // Clamp to [0,1] so dragging outside doesn't produce huge values.
+    const x = Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width));
+    const y = Math.min(1, Math.max(0, (e.clientY - rect.top) / rect.height));
+    return { x, y };
+  };
+
+  const onPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
     if (tool === "none") return;
-    const rect = overlayRef.current!.getBoundingClientRect();
-    const x = (e.clientX - rect.left) / rect.width;
-    const y = (e.clientY - rect.top) / rect.height;
+    e.preventDefault();
+    const { x, y } = pointToNorm(e);
 
     if (tool === "eraser") {
-      // find topmost annotation on this page containing (x,y)
       const target = [...annotations].reverse().find((a) => {
         if (a.page !== pageNum) return false;
         const minX = Math.min(a.x1, a.x2), maxX = Math.max(a.x1, a.x2);
@@ -100,48 +103,50 @@ export function PdfViewer({ file, highlight }: Props) {
       const text = window.prompt("Annotation text:");
       if (!text) return;
       setAnnotations((arr) => [...arr, {
-        id: `a_${Date.now()}`, tool, page: pageNum,
-        x1: x, y1: y, x2: x + 0.18, y2: y + 0.04,
-        color, stroke: STROKE_PX[stroke], text,
+        id: `a_${Date.now()}`, tool: "text", page: pageNum,
+        x1: x, y1: y, x2: x + 0.2, y2: y + 0.04,
+        color: color.value, text,
       }]);
       return;
     }
 
+    // capture on the overlay (which is also currentTarget) so we don't lose events
+    e.currentTarget.setPointerCapture(e.pointerId);
     setDrawing({
-      id: `a_${Date.now()}`, tool, page: pageNum,
+      id: `a_${Date.now()}`,
+      tool: tool as Annotation["tool"],
+      page: pageNum,
       x1: x, y1: y, x2: x, y2: y,
-      color, stroke: STROKE_PX[stroke],
+      color: color.value,
     });
-    (e.target as HTMLElement).setPointerCapture(e.pointerId);
   };
 
-  const onPointerMove = (e: React.PointerEvent) => {
+  const onPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
     if (!drawing) return;
-    const rect = overlayRef.current!.getBoundingClientRect();
-    const x = (e.clientX - rect.left) / rect.width;
-    const y = (e.clientY - rect.top) / rect.height;
-    setDrawing({ ...drawing, x2: x, y2: y });
+    const { x, y } = pointToNorm(e);
+    setDrawing((cur) => (cur ? { ...cur, x2: x, y2: y } : cur));
   };
 
-  const onPointerUp = () => {
-    if (!drawing) return;
-    if (Math.abs(drawing.x2 - drawing.x1) > 0.002 || Math.abs(drawing.y2 - drawing.y1) > 0.002) {
-      setAnnotations((arr) => [...arr, drawing]);
+  const onPointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (e.currentTarget.hasPointerCapture(e.pointerId)) {
+      e.currentTarget.releasePointerCapture(e.pointerId);
     }
-    setDrawing(null);
+    setDrawing((cur) => {
+      if (!cur) return null;
+      if (Math.abs(cur.x2 - cur.x1) > 0.002 || Math.abs(cur.y2 - cur.y1) > 0.002) {
+        setAnnotations((arr) => [...arr, cur]);
+      }
+      return null;
+    });
   };
 
-  // Mouse wheel zoom
   const onWheel = (e: React.WheelEvent) => {
     if (!e.ctrlKey && !e.metaKey) return;
     e.preventDefault();
     setZoom((z) => Math.min(2, Math.max(0.5, +(z + (e.deltaY < 0 ? 0.1 : -0.1)).toFixed(2))));
   };
 
-  const showHighlight =
-    highlight && highlight.location.page_number === pageNum;
-
-  // Compute highlight rect in normalized coords (0..1) using bounding box width/height
+  const showHighlight = highlight && highlight.location.page_number === pageNum;
   const hlRect = useMemo(() => {
     if (!showHighlight) return null;
     const bb = highlight!.location.bounding_box;
@@ -153,13 +158,19 @@ export function PdfViewer({ file, highlight }: Props) {
     };
   }, [highlight, showHighlight]);
 
-  const displayedW = pageSize.w * zoom;
-  const displayedH = pageSize.h * zoom;
+  // Page width based on zoom (height auto-fits)
+  const pageWidth = 720 * zoom;
+
+  const cursorClass =
+    tool === "none" ? "cursor-default"
+    : tool === "eraser" ? "cursor-pointer"
+    : tool === "text" ? "cursor-text"
+    : "cursor-crosshair";
 
   return (
     <div className="flex h-full flex-col">
       {/* Toolbar */}
-      <div className="border-b border-border bg-card/50 p-2 space-y-2">
+      <div className="space-y-2 border-b border-border bg-card/50 p-2">
         <div className="flex flex-wrap items-center gap-2 text-xs">
           {isPdf && (
             <div className="inline-flex items-center gap-1 rounded-md border border-border bg-background px-2 py-1">
@@ -190,9 +201,21 @@ export function PdfViewer({ file, highlight }: Props) {
             <button onClick={() => setZoom((z) => Math.min(2, +(z + 0.25).toFixed(2)))} className="rounded p-0.5 hover:bg-muted"><ZoomIn className="h-3.5 w-3.5" /></button>
             <button onClick={() => setZoom(1)} className="rounded p-0.5 hover:bg-muted" title="Reset"><RefreshCw className="h-3.5 w-3.5" /></button>
           </div>
+          <button
+            onClick={() => setAnnotations([])}
+            className="ml-auto inline-flex items-center gap-1 rounded-md border border-border bg-background px-2 py-1 hover:bg-muted"
+          >
+            <Trash2 className="h-3.5 w-3.5" /> Clear
+          </button>
         </div>
-        <div className="flex flex-wrap items-center gap-2 text-xs">
-          <span className="text-muted-foreground">Tools:</span>
+        <div className="flex flex-wrap items-center gap-1.5 text-xs">
+          <button
+            onClick={() => setTool("none")}
+            className={`inline-flex items-center gap-1 rounded-md border px-2 py-1 ${tool === "none" ? "border-primary bg-accent text-accent-foreground" : "border-border bg-background hover:bg-muted"}`}
+            title="Select"
+          >
+            <MousePointer2 className="h-3.5 w-3.5" />
+          </button>
           {([
             ["rect", Square, "Box"],
             ["highlight", Highlighter, "Highlight"],
@@ -209,38 +232,31 @@ export function PdfViewer({ file, highlight }: Props) {
               <Icon className="h-3.5 w-3.5" /> {label}
             </button>
           ))}
-          <span className="ml-2 text-muted-foreground">Color:</span>
-          {COLORS.map((c) => (
-            <button
-              key={c.value}
-              onClick={() => setColor(c.value)}
-              className={`h-5 w-5 rounded-full border-2 transition-all ${color === c.value ? "border-foreground ring-2 ring-ring/30" : "border-border"}`}
-              style={{ backgroundColor: c.value }}
-              aria-label={c.name}
+          <div className="ml-1 inline-flex items-center gap-1 rounded-md border border-border bg-background px-2 py-1">
+            <span
+              className="inline-block h-3.5 w-3.5 rounded-full border border-border"
+              style={{ backgroundColor: color.light }}
+              aria-hidden
             />
-          ))}
-          <select value={stroke} onChange={(e) => setStroke(e.target.value as Stroke)} className="rounded-md border border-border bg-background px-2 py-1 text-xs">
-            <option value="thin">Thin</option>
-            <option value="medium">Medium</option>
-            <option value="thick">Thick</option>
-          </select>
-          <button
-            onClick={() => setAnnotations([])}
-            className="ml-auto inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 hover:bg-muted"
-          >
-            <Trash2 className="h-3.5 w-3.5" /> Clear All
-          </button>
+            <select
+              value={colorIdx}
+              onChange={(e) => setColorIdx(+e.target.value)}
+              className="bg-transparent text-xs outline-none"
+            >
+              {COLORS.map((c, i) => (
+                <option key={c.name} value={i}>{c.name}</option>
+              ))}
+            </select>
+          </div>
         </div>
       </div>
 
       {/* Canvas area */}
       <div className="relative flex-1 overflow-auto bg-muted/30" onWheel={onWheel}>
-        <div className="flex min-h-full items-start justify-center p-6">
-          <div
-            className="relative shadow-lg"
-            style={{ width: displayedW, height: displayedH, cursor: tool === "none" ? "default" : "crosshair" }}
-          >
-            {/* PDF / image / text base layer */}
+        <div className="flex min-h-full items-start justify-center p-4">
+          {/* This wrapper auto-sizes to the rendered PDF/image — the absolute overlay
+              therefore always matches the displayed content exactly. */}
+          <div className={`relative inline-block bg-white shadow-lg ${cursorClass}`}>
             {isPdf && (
               <Document
                 file={fileUrl}
@@ -250,11 +266,7 @@ export function PdfViewer({ file, highlight }: Props) {
               >
                 <Page
                   pageNumber={pageNum}
-                  width={displayedW}
-                  onLoadSuccess={(p) => {
-                    // base size at zoom=1
-                    setPageSize({ w: p.width / zoom, h: p.height / zoom });
-                  }}
+                  width={pageWidth}
                   renderAnnotationLayer={false}
                   renderTextLayer={false}
                 />
@@ -264,37 +276,40 @@ export function PdfViewer({ file, highlight }: Props) {
               <img
                 src={fileUrl}
                 alt=""
-                onLoad={(e) => {
-                  const img = e.currentTarget;
-                  setPageSize({ w: img.naturalWidth, h: img.naturalHeight });
-                }}
-                style={{ width: displayedW, height: "auto", display: "block" }}
+                style={{ width: pageWidth, height: "auto", display: "block" }}
               />
             )}
             {isText && (
-              <div className="h-full w-full overflow-auto bg-card p-4 text-xs">
+              <div style={{ width: pageWidth, minHeight: 600 }} className="overflow-auto bg-card p-4 text-xs">
                 <TextPreview file={file} />
               </div>
             )}
 
-            {/* Annotation overlay */}
+            {/* Annotation overlay — sized 100% of the wrapper so coords always match */}
             <div
               ref={overlayRef}
               className="absolute inset-0"
+              style={{ touchAction: "none" }}
               onPointerDown={onPointerDown}
               onPointerMove={onPointerMove}
               onPointerUp={onPointerUp}
+              onPointerCancel={onPointerUp}
             >
-              <svg className="pointer-events-none absolute inset-0 h-full w-full">
-                {[...annotations.filter((a) => a.page === pageNum), drawing].filter(Boolean).map((a) => (
-                  <AnnotationShape key={a!.id} a={a!} w={displayedW} h={displayedH} />
-                ))}
+              <svg
+                className="pointer-events-none absolute inset-0 h-full w-full"
+                preserveAspectRatio="none"
+                viewBox="0 0 1 1"
+              >
+                {[...annotations.filter((a) => a.page === pageNum), drawing]
+                  .filter(Boolean)
+                  .map((a) => (
+                    <AnnotationShape key={a!.id} a={a!} />
+                  ))}
               </svg>
 
-              {/* extraction highlight */}
               {showHighlight && hlRect && (
                 <div
-                  className="pointer-events-none absolute animate-[pulse_2s_ease-in-out_infinite] rounded-sm border-2 border-dashed transition-all duration-300"
+                  className="pointer-events-none absolute animate-[pulse_2s_ease-in-out_infinite] rounded-sm border-2 border-dashed"
                   style={{
                     left: `${hlRect.left * 100}%`,
                     top: `${hlRect.top * 100}%`,
@@ -317,36 +332,66 @@ export function PdfViewer({ file, highlight }: Props) {
   );
 }
 
-function AnnotationShape({ a, w, h }: { a: Annotation; w: number; h: number }) {
-  const x1 = a.x1 * w, y1 = a.y1 * h, x2 = a.x2 * w, y2 = a.y2 * h;
-  const minX = Math.min(x1, x2), minY = Math.min(y1, y2);
-  const width = Math.abs(x2 - x1), height = Math.abs(y2 - y1);
+/**
+ * Annotation rendered in a 1×1 SVG viewBox; stroke widths are expressed as
+ * fractions so they scale visually with the document.
+ */
+function AnnotationShape({ a }: { a: Annotation }) {
+  const minX = Math.min(a.x1, a.x2), minY = Math.min(a.y1, a.y2);
+  const width = Math.abs(a.x2 - a.x1), height = Math.abs(a.y2 - a.y1);
+  const sw = 0.003;
 
   if (a.tool === "rect") {
-    return <rect x={minX} y={minY} width={width} height={height} fill="none" stroke={a.color} strokeWidth={a.stroke} />;
+    return (
+      <rect
+        x={minX} y={minY} width={width} height={height}
+        fill="none" stroke={a.color} strokeWidth={sw}
+        vectorEffect="non-scaling-stroke"
+      />
+    );
   }
   if (a.tool === "highlight") {
-    return <rect x={minX} y={minY} width={width} height={height} fill={a.color} fillOpacity={0.3} />;
+    return (
+      <rect
+        x={minX} y={minY} width={width} height={height}
+        fill={a.color} fillOpacity={0.28}
+      />
+    );
   }
   if (a.tool === "arrow") {
-    const angle = Math.atan2(y2 - y1, x2 - x1);
-    const headLen = 12;
-    const hx1 = x2 - headLen * Math.cos(angle - Math.PI / 7);
-    const hy1 = y2 - headLen * Math.sin(angle - Math.PI / 7);
-    const hx2 = x2 - headLen * Math.cos(angle + Math.PI / 7);
-    const hy2 = y2 - headLen * Math.sin(angle + Math.PI / 7);
+    const angle = Math.atan2(a.y2 - a.y1, a.x2 - a.x1);
+    const headLen = 0.025;
+    const hx1 = a.x2 - headLen * Math.cos(angle - Math.PI / 7);
+    const hy1 = a.y2 - headLen * Math.sin(angle - Math.PI / 7);
+    const hx2 = a.x2 - headLen * Math.cos(angle + Math.PI / 7);
+    const hy2 = a.y2 - headLen * Math.sin(angle + Math.PI / 7);
     return (
-      <g stroke={a.color} strokeWidth={a.stroke} fill={a.color}>
-        <line x1={x1} y1={y1} x2={x2} y2={y2} />
-        <polygon points={`${x2},${y2} ${hx1},${hy1} ${hx2},${hy2}`} />
+      <g stroke={a.color} fill={a.color} strokeWidth={sw} vectorEffect="non-scaling-stroke">
+        <line x1={a.x1} y1={a.y1} x2={a.x2} y2={a.y2} />
+        <polygon points={`${a.x2},${a.y2} ${hx1},${hy1} ${hx2},${hy2}`} />
       </g>
     );
   }
   if (a.tool === "text") {
     return (
       <g>
-        <rect x={minX} y={minY} width={Math.max(width, 80)} height={Math.max(height, 24)} fill={a.color} fillOpacity={0.1} stroke={a.color} strokeWidth={1} />
-        <text x={minX + 6} y={minY + 16} fill={a.color} fontSize={13} fontFamily="system-ui">{a.text}</text>
+        <rect
+          x={minX} y={minY}
+          width={Math.max(width, 0.12)}
+          height={Math.max(height, 0.03)}
+          fill={a.color} fillOpacity={0.1}
+          stroke={a.color} strokeWidth={sw / 2}
+          vectorEffect="non-scaling-stroke"
+        />
+        <text
+          x={minX + 0.005}
+          y={minY + 0.022}
+          fill={a.color}
+          fontSize={0.018}
+          fontFamily="system-ui"
+        >
+          {a.text}
+        </text>
       </g>
     );
   }

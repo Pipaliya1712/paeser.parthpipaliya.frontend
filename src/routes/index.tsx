@@ -1,16 +1,20 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { FileScan, Loader2, Moon, Sun, Code2 } from "lucide-react";
 import { FileUpload } from "@/components/parser/FileUpload";
 import { SchemaBuilder } from "@/components/parser/SchemaBuilder";
 import { PasteJsonModal } from "@/components/parser/PasteJsonModal";
 import { ResultsTree } from "@/components/parser/ResultsTree";
-import { PdfViewer } from "@/components/parser/PdfViewer";
 import {
   type SchemaField, type ParseResponse, type FieldDetail,
-  serializeField, newId,
+  serializeField, newId, validateFields,
 } from "@/lib/parser-types";
+
+// PDF.js depends on browser globals (DOMMatrix). Load only on the client.
+const PdfViewer = lazy(() =>
+  import("@/components/parser/PdfViewer").then((m) => ({ default: m.PdfViewer })),
+);
 
 export const Route = createFileRoute("/")({
   component: ParserPage,
@@ -36,7 +40,9 @@ function ParserPage() {
   const [response, setResponse] = useState<ParseResponse | null>(null);
   const [activeHighlight, setActiveHighlight] = useState<FieldDetail | null>(null);
   const [dark, setDark] = useState(false);
+  const [mounted, setMounted] = useState(false);
 
+  useEffect(() => { setMounted(true); }, []);
   useEffect(() => {
     document.documentElement.classList.toggle("dark", dark);
   }, [dark]);
@@ -44,11 +50,8 @@ function ParserPage() {
   const handleExtract = async () => {
     if (!file) { toast.error("Please upload a document first"); return; }
     if (fields.length === 0) { toast.error("Please define at least one field to extract"); return; }
-    const missingKeys = collectMissingKeys(fields);
-    if (missingKeys.length > 0) {
-      toast.error(`Some fields are missing a key_name (${missingKeys.length})`);
-      return;
-    }
+    const errs = validateFields(fields);
+    if (errs.length > 0) { toast.error(errs[0]); return; }
 
     setLoading(true);
     setResponse(null);
@@ -109,8 +112,8 @@ function ParserPage() {
       </header>
 
       <main className="mx-auto grid w-full max-w-[1600px] flex-1 grid-cols-1 gap-4 p-4 lg:grid-cols-12">
-        {/* Left panel */}
-        <section className="space-y-4 lg:col-span-5 xl:col-span-5">
+        {/* LEFT: Upload + PDF preview */}
+        <section className="space-y-4 lg:col-span-6">
           <Card title="1. Upload Document">
             <FileUpload
               file={file}
@@ -120,6 +123,25 @@ function ParserPage() {
             />
           </Card>
 
+          <div className="h-[calc(100vh-22rem)] min-h-[420px] overflow-hidden rounded-xl border border-border bg-card">
+            {file && mounted ? (
+              <Suspense fallback={<div className="flex h-full items-center justify-center text-sm text-muted-foreground">Loading viewer…</div>}>
+                <PdfViewer file={file} highlight={activeHighlight} />
+              </Suspense>
+            ) : (
+              <div className="flex h-full items-center justify-center p-8 text-center">
+                <div>
+                  <FileScan className="mx-auto h-10 w-10 text-muted-foreground/50" />
+                  <p className="mt-3 text-sm font-medium text-muted-foreground">Document preview will appear here</p>
+                  <p className="mt-1 text-xs text-muted-foreground">Upload a file above to get started</p>
+                </div>
+              </div>
+            )}
+          </div>
+        </section>
+
+        {/* RIGHT: Fields + Results */}
+        <section className="space-y-4 lg:col-span-6">
           <Card
             title="2. Extraction Schema"
             action={
@@ -142,27 +164,18 @@ function ParserPage() {
             {loading ? (<><Loader2 className="h-4 w-4 animate-spin" /> Extracting data from document…</>) : "Extract Data"}
           </button>
 
-          {response && (
-            <ResultsTree
-              response={response}
-              activeKey={activeHighlight?.key_name ?? null}
-              onPinClick={(d) => setActiveHighlight((cur) => cur?.key_name === d.key_name ? null : d)}
-            />
-          )}
-        </section>
-
-        {/* Right panel */}
-        <section className="lg:col-span-7 xl:col-span-7">
-          <div className="sticky top-4 h-[calc(100vh-7rem)] overflow-hidden rounded-xl border border-border bg-card">
-            {file ? (
-              <PdfViewer file={file} highlight={activeHighlight} />
+          <div className="overflow-hidden rounded-xl border border-border bg-card">
+            {response ? (
+              <div className="max-h-[60vh]">
+                <ResultsTree
+                  response={response}
+                  activeKey={activeHighlight?.key_name ?? null}
+                  onPinClick={(d) => setActiveHighlight((cur) => cur?.key_name === d.key_name ? null : d)}
+                />
+              </div>
             ) : (
-              <div className="flex h-full items-center justify-center p-8 text-center">
-                <div>
-                  <FileScan className="mx-auto h-10 w-10 text-muted-foreground/50" />
-                  <p className="mt-3 text-sm font-medium text-muted-foreground">Upload a document to see it here</p>
-                  <p className="mt-1 text-xs text-muted-foreground">PDF, image, or text — with annotations and extraction overlays</p>
-                </div>
+              <div className="p-8 text-center text-xs text-muted-foreground">
+                3. Results will appear here after extraction.
               </div>
             )}
           </div>
@@ -190,16 +203,4 @@ function Card({ title, action, children }: { title: string; action?: React.React
       {children}
     </div>
   );
-}
-
-function collectMissingKeys(fields: SchemaField[]): SchemaField[] {
-  const out: SchemaField[] = [];
-  const walk = (arr: SchemaField[]) => {
-    for (const f of arr) {
-      if (!f.key_name.trim()) out.push(f);
-      if (f.children) walk(f.children);
-    }
-  };
-  walk(fields);
-  return out;
 }
