@@ -65,16 +65,37 @@ interface NodeProps {
 function PinBadge({
   detail, active, onClick,
 }: { detail: FieldDetail; active: boolean; onClick: () => void }) {
-  return (
-    <button
-      onClick={onClick}
-      className={`ml-2 inline-flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-[10px] font-sans font-medium transition-all ${confidenceColor(detail.confidence)} ${active ? "ring-2 ring-primary ring-offset-1 ring-offset-card" : ""}`}
-      title={`Page ${detail.location.page_number} — ${detail.confidence}% confidence`}
-    >
-      <MapPin className="h-2.5 w-2.5" />
-      {detail.confidence.toFixed(0)}%
-    </button>
-  );
+  // No confidence at all — show nothing
+  if (!detail.confidence && detail.confidence !== 0) return null;
+  if (detail.confidence <= 0 && !detail.location) return null;
+
+  // Has location → clickable pin + confidence
+  if (detail.location) {
+    return (
+      <button
+        onClick={onClick}
+        className={`ml-2 inline-flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-[10px] font-sans font-medium transition-all ${confidenceColor(detail.confidence)} ${active ? "ring-2 ring-primary ring-offset-1 ring-offset-card" : ""}`}
+        title={`Page ${detail.location.page_number} — ${detail.confidence}% confidence`}
+      >
+        <MapPin className="h-2.5 w-2.5" />
+        {detail.confidence > 0 ? `${detail.confidence.toFixed(0)}%` : "📍"}
+      </button>
+    );
+  }
+
+  // No location but has confidence — show accuracy only (no pin, not clickable)
+  if (detail.confidence > 0) {
+    return (
+      <span
+        className={`ml-2 inline-flex items-center rounded-full border px-1.5 py-0.5 text-[10px] font-sans font-medium ${confidenceColor(detail.confidence)}`}
+        title={`${detail.confidence}% confidence`}
+      >
+        {detail.confidence.toFixed(0)}%
+      </span>
+    );
+  }
+
+  return null;
 }
 
 function formatLeaf(v: unknown): string {

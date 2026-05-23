@@ -51,14 +51,15 @@ export function SchemaBuilder({ fields, onChange }: Props) {
         <div className="flex items-center gap-2">
           <label className="inline-flex cursor-pointer items-center gap-2 text-xs text-muted-foreground">
             <span>Raw JSON</span>
-            <input
-              type="checkbox"
-              checked={rawMode}
-              onChange={(e) => setRawMode(e.target.checked)}
-              className="peer sr-only"
-            />
-            <span className="relative inline-block h-5 w-9 rounded-full bg-muted transition-colors peer-checked:bg-primary">
-              <span className="absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-background transition-transform peer-checked:translate-x-4" />
+            <span className="relative inline-flex h-5 w-9 items-center">
+              <input
+                type="checkbox"
+                checked={rawMode}
+                onChange={(e) => setRawMode(e.target.checked)}
+                className="peer sr-only"
+              />
+              <span className="absolute inset-0 rounded-full bg-muted transition-colors duration-200 peer-checked:bg-primary" />
+              <span className="relative left-0.5 h-4 w-4 rounded-full bg-background shadow transition-transform duration-200 peer-checked:translate-x-4" />
             </span>
           </label>
           {!rawMode && (
@@ -304,14 +305,15 @@ function FieldEditForm({ field, onUpdate }: { field: SchemaField; onUpdate: (p: 
       <div className="col-span-5 md:col-span-2 flex flex-col">
         <Label>Required</Label>
         <label className="mt-1 inline-flex cursor-pointer items-center">
-          <input
-            type="checkbox"
-            checked={field.required}
-            onChange={(e) => onUpdate({ required: e.target.checked })}
-            className="peer sr-only"
-          />
-          <span className="relative inline-block h-5 w-9 rounded-full bg-muted transition-colors peer-checked:bg-primary">
-            <span className="absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-background transition-transform peer-checked:translate-x-4" />
+          <span className="relative inline-flex h-5 w-9 items-center">
+            <input
+              type="checkbox"
+              checked={field.required}
+              onChange={(e) => onUpdate({ required: e.target.checked })}
+              className="peer sr-only"
+            />
+            <span className="absolute inset-0 rounded-full bg-muted transition-colors duration-200 peer-checked:bg-primary" />
+            <span className="relative left-0.5 h-4 w-4 rounded-full bg-background shadow transition-transform duration-200 peer-checked:translate-x-4" />
           </span>
         </label>
       </div>
