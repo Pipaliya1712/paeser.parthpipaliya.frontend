@@ -129,7 +129,7 @@ function ParserPage() {
     setResponse(null);
     setActiveHighlight(null);
 
-    const apiBase = (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? "http://localhost:8000";
+    const apiBase = (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? window.location.origin;
     const fd = new FormData();
     fd.append("file", file);
     fd.append("schema_json", JSON.stringify(fields.map(serializeField)));
