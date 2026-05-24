@@ -129,7 +129,8 @@ function ParserPage() {
     setResponse(null);
     setActiveHighlight(null);
 
-    const apiBase = (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? window.location.origin;
+    // const apiBase = (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? window.location.origin;
+    const apiBase = 'https://parser-parthpipaliya-backend.onrender.com'
     const fd = new FormData();
     fd.append("file", file);
     fd.append("schema_json", JSON.stringify(fields.map(serializeField)));

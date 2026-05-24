@@ -9,7 +9,8 @@ interface Props {
 export function ApiModal({ open, onClose }: Props) {
   if (!open) return null;
 
-  const apiBase = (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? window.location.origin;
+  // const apiBase = (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? window.location.origin;
+  const apiBase = 'https://parser-parthpipaliya-backend.onrender.com'
   const endpoint = `${apiBase}/api/v1/parse-document`;
   const healthEndpoint = `${apiBase}/api/v1/health`;
 
