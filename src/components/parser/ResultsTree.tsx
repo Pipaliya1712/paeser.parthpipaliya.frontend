@@ -48,7 +48,6 @@ export function ResultsTree({ response, activeKey, onPinClick }: Props) {
       <div className="flex flex-wrap gap-x-4 gap-y-1 border-t border-border px-4 py-2 text-[11px] text-muted-foreground">
         <span>Processing: {response.metadata.processing_time_seconds.toFixed(2)}s</span>
         <span>Pages: {response.metadata.pages_processed}</span>
-        <span>Model: {response.metadata.model_used}</span>
       </div>
     </div>
   );
